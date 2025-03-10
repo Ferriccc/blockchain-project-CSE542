@@ -1,0 +1,29 @@
+[package]
+name = "pastechain"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.44.0", features = ["full"] }
+futures = "0.3.31"
+k256 = { version = "0.13.4", features = ["ecdsa"] }
+libp2p = { version = "0.55.0", features = [
+    "tokio",
+    "gossipsub",
+    "mdns",
+    "noise",
+    "macros",
+    "tcp",
+    "kad",
+    "yamux",
+    "quic",
+] }
+rand = "0.9.0"
+rand_core = "0.9.3"
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.140"
+sha2 = "0.10.8"
+uuid = "1.15.1"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+hex = "0.4.3"
+rand_chacha = "0.9.0"
