@@ -1,18 +1,15 @@
-use libp2p::identity;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::error::Error;
 
 use crate::block::Block;
-use crate::mempool::{MemPool, MemPoolRequest};
-use crate::node::NodeInfo;
-use crate::transaction::{FileStoredTx, ProofOfStorgeTx, Transaction};
+use crate::mempool::MemPool;
+use crate::transaction::{FileStoredTx, Transaction};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Blockchain {
     pub chain: Vec<Block>,
-    pub public_key_map: HashMap<String, Vec<u8>>,
     pub storage_map: HashMap<String, String>,
 }
 
@@ -59,7 +56,8 @@ impl Blockchain {
     }
 
     pub fn update(&mut self, new_chain: Blockchain) {
-        self.public_key_map.extend(new_chain.public_key_map);
+        // self.public_key_map.extend(new_chain.public_key_map);
+        // TODO: implement this
         if self.chain.len() < new_chain.chain.len() {
             self.chain = new_chain.chain;
         }
@@ -80,7 +78,7 @@ impl Blockchain {
 
         // TODO: store the file_content locally
 
-        self.add_block(Transaction::FileStored(tx));
+        self.add_block(Transaction::FileStored(tx))?;
         Ok(())
     }
 }

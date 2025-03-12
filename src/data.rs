@@ -5,23 +5,38 @@ use std::error::Error;
 use crate::MyBehaviour;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SignedData {
+pub struct Data {
+    pub id: String,
     pub data: Vec<u8>,
     pub signature: Vec<u8>,
-    pub id: String,
+    pub public_key: Vec<u8>,
+    pub is_signed: bool,
 }
 
-impl SignedData {
+impl Data {
     pub fn new(
+        id: String,
         data: Vec<u8>,
         private_key: &identity::Keypair,
-        id: String,
+        public_key: Vec<u8>,
+        is_signed: bool,
     ) -> Result<Self, Box<dyn Error>> {
+        if !is_signed {
+            return Ok(Data {
+                id,
+                data,
+                signature: vec![],
+                public_key,
+                is_signed,
+            });
+        }
         let signature = private_key.sign(&data)?;
-        Ok(SignedData {
+        Ok(Data {
+            id,
             data,
             signature,
-            id,
+            public_key,
+            is_signed,
         })
     }
 
@@ -39,7 +54,12 @@ impl SignedData {
             .map_err(|e| e.into())
     }
 
-    pub fn verify(&self, public_key: &identity::PublicKey) -> bool {
-        public_key.verify(&self.data, &self.signature)
+    pub fn verify(&self) -> Result<bool, Box<dyn Error>> {
+        let public_key = identity::PublicKey::try_decode_protobuf(&self.public_key)?;
+        let expected_id = identity::PeerId::from_public_key(&public_key).to_string();
+        if expected_id != self.id {
+            return Ok(false);
+        }
+        Ok(public_key.verify(&self.data, &self.signature))
     }
 }

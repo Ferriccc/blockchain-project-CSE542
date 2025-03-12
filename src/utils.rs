@@ -1,13 +1,6 @@
-use libp2p::{PeerId, identity};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use sha2::{Digest, Sha256};
-
-pub fn generate_credentials() -> (identity::Keypair, PeerId) {
-    let keypair = identity::Keypair::generate_ed25519();
-    let id = PeerId::from(keypair.public());
-    (keypair, id)
-}
 
 pub fn get_deterministic_random(seed: u64, param: u64) -> u64 {
     let combined_seed = seed ^ param;

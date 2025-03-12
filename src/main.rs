@@ -1,15 +1,14 @@
 mod block;
 mod blockchain;
+mod data;
 mod mempool;
 mod node;
-mod signed_data;
 mod transaction;
 mod utils;
 
 use blockchain::Blockchain;
+use data::Data;
 use mempool::{MemPool, MemPoolRequest};
-use node::NodeInfo;
-use signed_data::SignedData;
 use std::collections::HashMap;
 use tokio::time;
 
@@ -22,7 +21,7 @@ use std::{
 
 use futures::stream::StreamExt;
 use libp2p::{
-    gossipsub, identity, mdns, noise,
+    PeerId, gossipsub, identity, mdns, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux,
 };
@@ -88,23 +87,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
-    let (keypair, id) = utils::generate_credentials();
-    let public_key = keypair.public().encode_protobuf(); // Extract public key
+    let keypair = identity::Keypair::generate_ed25519();
+    let id = PeerId::from(keypair.public());
+    let public_key = keypair.public(); // Extract public key
     let private_key = &keypair; // The keypair itself acts as the private key
-
-    let mut node: NodeInfo = NodeInfo {
-        id: id.to_string(),
-        public_key: public_key.clone(),
-    };
 
     let mut blockchain = Blockchain {
         chain: vec![],
-        public_key_map: HashMap::new(),
         storage_map: HashMap::new(),
     };
-    blockchain
-        .public_key_map
-        .insert(node.id.clone(), public_key);
 
     let mut mempool = MemPool {
         pending_txs: vec![],
@@ -120,8 +111,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ = broadcast_timer.tick() => {
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
                     let data =  serde_json::to_vec(&blockchain)?;
-                    let signed_blockchain = SignedData::new(data,  private_key, node.clone().id)?;
-                    signed_blockchain.broadcast(&mut swarm, &topic)?;
+                    Data::new(id.clone().to_string(), data, private_key, public_key.clone().encode_protobuf(), true)?.broadcast(&mut swarm, &topic)?;
                     Ok(())
                 })() {
                     println!("[!!] {e}");
@@ -129,17 +119,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
 
             Ok(Some(line)) = stdin.next_line() => {
-                    if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
-                        let request = MemPoolRequest::new(id.to_string(), &line)?;
-                        mempool.pending_txs.push(request.clone());
+                if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
+                    let request = MemPoolRequest::new(id.to_string(), &line)?;
+                    mempool.pending_txs.push(request.clone());
 
-                        let data = serde_json::to_vec(&request)?;
-                        let signed_request = SignedData::new(data, private_key, node.clone().id)?;
-                        signed_request.broadcast(&mut swarm, &topic)?;
-                        Ok(())
-                    })() {
-                        println!("[!!] {e}");
-                    }
+                    let data = serde_json::to_vec(&request)?;
+                    Data::new(id.clone().to_string(), data, private_key, public_key.clone().encode_protobuf(), true)?.broadcast(&mut swarm, &topic)?;
+                    Ok(())
+                })() {
+                    println!("[!!] {e}");
+                }
             }
 
             event = swarm.select_next_some() => match event {
@@ -160,26 +149,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     ..
                 })) => {
                     if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
-                        let received_signed_data = serde_json::from_slice::<SignedData>(&message.data)?;
-                        let public_key_sender_bytes = blockchain.public_key_map.
-                                                        get(&received_signed_data.id).
-                                                        ok_or_else(||
-                                                            format!("cannot find public key of id: {0}", received_signed_data.id))?;
-                        let public_key_sender = identity::PublicKey::try_decode_protobuf(public_key_sender_bytes)?;
-                        if !received_signed_data.verify(&public_key_sender) {
-                            return Err("cannot verify received_signed_data".into());
+                        let data = serde_json::from_slice::<Data>(&message.data)?;
+                        if !data.is_signed {
+                            // TODO: in future handle this if there is some unsigned data needed to be sent
+                            return Ok(());
                         }
-
-                        println!("[#] Verified received data");
-                        if let Ok(received_blockchain) = serde_json::from_slice::<Blockchain>(&received_signed_data.data) {
+                        if !data.verify()? {
+                            return Err("cannot verify received data".into());
+                        }
+                        let data =data.data;
+                        if let Ok(received_blockchain) = serde_json::from_slice::<Blockchain>(&data) {
                             println!("[#] Received Blockchain: {:?}", received_blockchain);
                             if received_blockchain.verify() {
                                 blockchain.update(received_blockchain);
                             }
-                        } else if let Ok(received_request) = serde_json::from_slice::<MemPoolRequest>(&received_signed_data.data) {
+                        } else if let Ok(received_request) = serde_json::from_slice::<MemPoolRequest>(&data) {
                             println!("[#] Received request: {:?}", received_request);
                             mempool.pending_txs.push(received_request);
-                        } else {
+                        }  else {
                             return Err("invalid received_signed_data".into());
                         }
                         Ok(())
