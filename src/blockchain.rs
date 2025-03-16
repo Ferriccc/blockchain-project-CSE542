@@ -10,7 +10,9 @@ use crate::transaction::{FileStoredTx, Transaction};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Blockchain {
     pub chain: Vec<Block>,
+    pub nodes: Vec<String>,
     pub storage_map: HashMap<String, String>,
+    pub balance_map: HashMap<String, f64>,
 }
 
 impl Blockchain {
@@ -25,7 +27,7 @@ impl Blockchain {
 
         let new_block = Block {
             previous_hash: last_block.clone().hash,
-            tx,
+            tx: Some(tx),
             hash,
         };
         self.chain.push(new_block);
@@ -58,6 +60,9 @@ impl Blockchain {
     pub fn update(&mut self, new_chain: Blockchain) {
         // self.public_key_map.extend(new_chain.public_key_map);
         // TODO: implement this
+        self.nodes.extend(new_chain.nodes);
+        self.nodes.sort();
+        self.nodes.dedup();
         if self.chain.len() < new_chain.chain.len() {
             self.chain = new_chain.chain;
         }

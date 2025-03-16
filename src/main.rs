@@ -94,8 +94,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut blockchain = Blockchain {
         chain: vec![],
+        nodes: vec![],
         storage_map: HashMap::new(),
+        balance_map: HashMap::new(),
     };
+
+    // self id
+    blockchain.nodes.push(id.to_string());
+
+    // Geneisis block
+    blockchain.chain.push(block::Block {
+        previous_hash: "0".to_string(),
+        tx: None,
+        hash: "0".to_string(),
+    });
 
     let mut mempool = MemPool {
         pending_txs: vec![],
@@ -105,13 +117,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdin = io::BufReader::new(io::stdin()).lines();
 
     let mut broadcast_timer = time::interval(Duration::from_secs(10));
-    println!("[#] Enter file path below...");
+    let mut mine_timer = time::interval(Duration::from_secs(10));
     loop {
         select! {
             _ = broadcast_timer.tick() => {
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
                     let data =  serde_json::to_vec(&blockchain)?;
                     Data::new(id.clone().to_string(), data, private_key, public_key.clone().encode_protobuf(), true)?.broadcast(&mut swarm, &topic)?;
+                    Ok(())
+                })() {
+                    println!("[!!] {e}");
+                }
+            }
+
+            _ = mine_timer.tick() => {
+                if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
+                    let mut elected_node = utils::get_deterministic_random(blockchain.nodes.len() as u64);
+                    elected_node %= blockchain.nodes.len() as u64;
+                    if blockchain.nodes[elected_node as usize] == id.to_string() {
+                        blockchain.mine_from_mempool(&id.to_string(), &mempool)?;
+                    }
                     Ok(())
                 })() {
                     println!("[!!] {e}");
@@ -157,11 +182,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         if !data.verify()? {
                             return Err("cannot verify received data".into());
                         }
-                        let data =data.data;
+                        let data = data.data;
                         if let Ok(received_blockchain) = serde_json::from_slice::<Blockchain>(&data) {
                             println!("[#] Received Blockchain: {:?}", received_blockchain);
                             if received_blockchain.verify() {
                                 blockchain.update(received_blockchain);
+                                println!("[DEBUG] current chain: {:?}", blockchain);
                             }
                         } else if let Ok(received_request) = serde_json::from_slice::<MemPoolRequest>(&data) {
                             println!("[#] Received request: {:?}", received_request);
