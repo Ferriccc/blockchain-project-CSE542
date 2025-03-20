@@ -24,9 +24,9 @@ impl MemPoolRequest {
         let file_content = fs::read(file_path)?;
         let file_hash = compute_file_hash(&file_content);
         let file_size = file_content.len() as u64;
-        let request_id = Uuid::new_v4();
         Ok(MemPoolRequest {
             node_id,
+            request_id: Uuid::new_v4().to_string(),
             file_content,
             file_hash,
             file_size,

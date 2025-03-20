@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use crate::block::Block;
-use crate::mempool::MemPool;
+use crate::mempool::MemPoolRequest;
 use crate::transaction::{FileStoredTx, Transaction};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -68,15 +68,18 @@ impl Blockchain {
         }
     }
 
-    pub fn mine_from_mempool(&mut self, id: &str, mempool: &MemPool) -> Result<(), Box<dyn Error>> {
-        let req = mempool
-            .pending_txs
+    pub fn mine_from_mempool(
+        &mut self,
+        id: &str,
+        pending_txs: &Vec<MemPoolRequest>,
+    ) -> Result<(), Box<dyn Error>> {
+        let req = pending_txs
             .first()
             .ok_or_else(|| "cannot mine, empty mempool")?;
 
         let tx = FileStoredTx {
             miner_id: id.to_string(),
-            owner_id: req.clone().owner_id,
+            owner_id: req.clone().node_id,
             file_hash: req.clone().file_hash,
             file_size: req.clone().file_size,
         };

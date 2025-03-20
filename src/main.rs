@@ -8,7 +8,7 @@ mod utils;
 
 use blockchain::Blockchain;
 use data::Data;
-use mempool::{MemPool, MemPoolRequest};
+use mempool::MemPoolRequest;
 use std::collections::HashMap;
 use tokio::time;
 
@@ -109,9 +109,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         hash: "0".to_string(),
     });
 
-    let mut mempool = MemPool {
-        pending_txs: vec![],
-    };
+    // let mut mempool = MemPool {
+    //     pending_txs: vec![],
+    // };
+    let mut pending_txs: Vec<MemPoolRequest> = vec![];
 
     // Read full lines from stdin
     let mut stdin = io::BufReader::new(io::stdin()).lines();
@@ -135,7 +136,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let mut elected_node = utils::get_deterministic_random(blockchain.nodes.len() as u64);
                     elected_node %= blockchain.nodes.len() as u64;
                     if blockchain.nodes[elected_node as usize] == id.to_string() {
-                        blockchain.mine_from_mempool(&id.to_string(), &mempool)?;
+                        blockchain.mine_from_mempool(&id.to_string(), &pending_txs)?;
                     }
                     Ok(())
                 })() {
@@ -145,8 +146,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             Ok(Some(line)) = stdin.next_line() => {
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
-                    let request = MemPoolRequest::new(id.to_string(), &line)?;
-                    mempool.pending_txs.push(request.clone());
+                    let request = MemPoolRequest::new(id.to_string(), &line, 1.0)?;
+                    pending_txs.push(request.clone());
 
                     let data = serde_json::to_vec(&request)?;
                     Data::new(id.clone().to_string(), data, private_key, public_key.clone().encode_protobuf(), true)?.broadcast(&mut swarm, &topic)?;
@@ -191,7 +192,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             }
                         } else if let Ok(received_request) = serde_json::from_slice::<MemPoolRequest>(&data) {
                             println!("[#] Received request: {:?}", received_request);
-                            mempool.pending_txs.push(received_request);
+                            pending_txs.push(received_request);
                         }  else {
                             return Err("invalid received_signed_data".into());
                         }
