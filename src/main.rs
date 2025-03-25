@@ -3,13 +3,17 @@ mod blockchain;
 mod data;
 mod mempool;
 mod node;
+mod randomized_election;
 mod transaction;
 mod utils;
 
+use block::Block;
 use blockchain::Blockchain;
 use data::Data;
-use mempool::MemPoolRequest;
-use std::collections::HashMap;
+use mempool::{MemPool, MemPoolRequest};
+use node::Node;
+use randomized_election::is_elected;
+use std::{collections::HashMap, panic};
 use tokio::time;
 
 use std::{
@@ -87,32 +91,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
     swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
-    let keypair = identity::Keypair::generate_ed25519();
-    let id = PeerId::from(keypair.public());
-    let public_key = keypair.public(); // Extract public key
-    let private_key = &keypair; // The keypair itself acts as the private key
+    let node = match Node::new() {
+        Ok(node) => node,
+        Err(_) => panic!("cannot make a new node instance"),
+    };
 
     let mut blockchain = Blockchain {
         chain: vec![],
         nodes: vec![],
-        storage_map: HashMap::new(),
-        balance_map: HashMap::new(),
+        stored: HashMap::new(),
+        balance: HashMap::new(),
     };
 
     // self id
-    blockchain.nodes.push(id.to_string());
+    blockchain.nodes.push(node.id.to_string());
 
     // Geneisis block
-    blockchain.chain.push(block::Block {
-        previous_hash: "0".to_string(),
+    let mut gen_block = Block {
+        previous_hash: None,
         tx: None,
-        hash: "0".to_string(),
-    });
+        hash: None,
+    };
+    gen_block.calculate_hash();
+    blockchain.chain.push(gen_block);
 
-    // let mut mempool = MemPool {
-    //     pending_txs: vec![],
-    // };
-    let mut pending_txs: Vec<MemPoolRequest> = vec![];
+    let mut mempool = MemPool {
+        pending: vec![].into(),
+        max_size: 1000,
+    };
 
     // Read full lines from stdin
     let mut stdin = io::BufReader::new(io::stdin()).lines();
@@ -124,7 +130,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ = broadcast_timer.tick() => {
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
                     let data =  serde_json::to_vec(&blockchain)?;
-                    Data::new(id.clone().to_string(), data, private_key, public_key.clone().encode_protobuf(), true)?.broadcast(&mut swarm, &topic)?;
+                    Data::new(node.id.clone().to_string(), data, &node.private_key, node.public_key.clone(), true)?.broadcast(&mut swarm, &topic)?;
+                    for request in &mempool.pending {
+                        let data =  serde_json::to_vec(&request)?;
+                        Data::new(node.id.clone().to_string(), data, &node.private_key, node.public_key.clone(), true)?.broadcast(&mut swarm, &topic)?;
+                    }
                     Ok(())
                 })() {
                     println!("[!!] {e}");
@@ -132,12 +142,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
 
             _ = mine_timer.tick() => {
+                println!("[#] current mempool: {:#?}", mempool);
+
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
-                    let mut elected_node = utils::get_deterministic_random(blockchain.nodes.len() as u64);
-                    elected_node %= blockchain.nodes.len() as u64;
-                    if blockchain.nodes[elected_node as usize] == id.to_string() {
-                        blockchain.mine_from_mempool(&id.to_string(), &pending_txs)?;
+                    let req = mempool.get_first()?;
+                    if req.node_id == node.id {
+                        return Err("Requesting node is same as miner node".into());
                     }
+
+                    if blockchain.search_transaction(&req.request_id) {
+                        mempool.pending.pop_front();
+                        return Err("Request already served".into());
+                    }
+
+                    let mut block = Block {
+                        previous_hash: blockchain.chain.last().unwrap().hash.clone(),
+                        tx: Some(req.mine(&node.id)),
+                        hash: None,
+                    };
+                    block.calculate_hash();
+
+                    if !is_elected(&node.id, &block.hash.clone().unwrap(), blockchain.chain.len()) {
+                        return Err("Not eligible to propose a block".into());
+                    }
+
+                    blockchain.add_block(block.clone());
+                    blockchain.stored.insert(req.file_hash, node.id.clone());
+
                     Ok(())
                 })() {
                     println!("[!!] {e}");
@@ -146,11 +177,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             Ok(Some(line)) = stdin.next_line() => {
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
-                    let request = MemPoolRequest::new(id.to_string(), &line, 1.0)?;
-                    pending_txs.push(request.clone());
+                    let request = MemPoolRequest::new(node.id.to_string(), &line, 1.0)?;
+                    mempool.add(&request);
 
                     let data = serde_json::to_vec(&request)?;
-                    Data::new(id.clone().to_string(), data, private_key, public_key.clone().encode_protobuf(), true)?.broadcast(&mut swarm, &topic)?;
+                    Data::new(node.id.clone().to_string(), data, &node.private_key, node.public_key.clone(), true)?.broadcast(&mut swarm, &topic)?;
                     Ok(())
                 })() {
                     println!("[!!] {e}");
@@ -185,14 +216,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                         let data = data.data;
                         if let Ok(received_blockchain) = serde_json::from_slice::<Blockchain>(&data) {
-                            println!("[#] Received Blockchain: {:?}", received_blockchain);
+                            //println!("[#] Received Blockchain: {:#?}", received_blockchain);
                             if received_blockchain.verify() {
                                 blockchain.update(received_blockchain);
-                                println!("[DEBUG] current chain: {:?}", blockchain);
+                                //println!("[DEBUG] current chain: {:#?}", blockchain);
                             }
                         } else if let Ok(received_request) = serde_json::from_slice::<MemPoolRequest>(&data) {
-                            println!("[#] Received request: {:?}", received_request);
-                            pending_txs.push(received_request);
+                            //println!("[#] Received request: {:#?}", received_request);
+                            mempool.add(&received_request);
                         }  else {
                             return Err("invalid received_signed_data".into());
                         }

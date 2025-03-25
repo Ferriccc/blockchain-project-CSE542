@@ -1,53 +1,41 @@
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::error::Error;
 
 use crate::block::Block;
-use crate::mempool::MemPoolRequest;
-use crate::transaction::{FileStoredTx, Transaction};
+use crate::transaction::Transaction;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Blockchain {
     pub chain: Vec<Block>,
     pub nodes: Vec<String>,
-    pub storage_map: HashMap<String, String>,
-    pub balance_map: HashMap<String, f64>,
+    pub stored: HashMap<String, String>,
+    pub balance: HashMap<String, f64>,
 }
 
 impl Blockchain {
-    pub fn add_block(&mut self, tx: Transaction) -> Result<(), Box<dyn Error>> {
-        let last_block = self
-            .chain
-            .last()
-            .ok_or_else(|| "cannot find last block in chain")?;
+    pub fn search_transaction(&self, id: &str) -> bool {
+        let mut found: bool = false;
+        for block in &self.chain {
+            if let Some(tx) = &block.tx {
+                match tx {
+                    Transaction::FileStored(file_stored_tx) => {
+                        found |= file_stored_tx.request_id == id;
+                    }
+                    _ => (),
+                };
+            }
+        }
 
-        let block_data = format!("{:?}{:?}", &last_block.hash, &tx);
-        let hash = format!("{:x}", Sha256::digest(block_data.as_bytes()));
+        return found;
+    }
 
-        let new_block = Block {
-            previous_hash: last_block.clone().hash,
-            tx: Some(tx),
-            hash,
-        };
-        self.chain.push(new_block);
-
-        Ok(())
+    pub fn add_block(&mut self, block: Block) {
+        self.chain.push(block);
     }
 
     pub fn verify(&self) -> bool {
         return true;
-
         // TODO: um.. this is probably the toughest part, will see..
-
-        if self.chain.len() == 0 {
-            return false;
-        }
-        if self.chain[0].hash != "0" {
-            return false;
-        }
-
-        let mut act_balance: HashMap<String, u64> = HashMap::new();
         // Things to verify:
         // balances
         // signatures
@@ -66,27 +54,5 @@ impl Blockchain {
         if self.chain.len() < new_chain.chain.len() {
             self.chain = new_chain.chain;
         }
-    }
-
-    pub fn mine_from_mempool(
-        &mut self,
-        id: &str,
-        pending_txs: &Vec<MemPoolRequest>,
-    ) -> Result<(), Box<dyn Error>> {
-        let req = pending_txs
-            .first()
-            .ok_or_else(|| "cannot mine, empty mempool")?;
-
-        let tx = FileStoredTx {
-            miner_id: id.to_string(),
-            owner_id: req.clone().node_id,
-            file_hash: req.clone().file_hash,
-            file_size: req.clone().file_size,
-        };
-
-        // TODO: store the file_content locally
-
-        self.add_block(Transaction::FileStored(tx))?;
-        Ok(())
     }
 }

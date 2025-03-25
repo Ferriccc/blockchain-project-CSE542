@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct FileStoredTx {
     pub miner_id: String,
     pub owner_id: String,
+    pub request_id: String,
     pub file_hash: String,
     pub file_size: u64,
 }
