@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
 
             _ = mine_timer.tick() => {
-                println!("[#] current mempool: {:#?}", mempool);
+                // println!("[#] current mempool: {:#?}", mempool);
 
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
                     let req = mempool.get_first()?;

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::block::Block;
-use crate::transaction::Transaction;
+use crate::randomized_election::is_elected;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Blockchain {
@@ -33,7 +33,19 @@ impl Blockchain {
         self.chain.push(block);
     }
 
-    pub fn verify(&self) -> bool {
+    pub fn verify_and_add(&self, blk: &Block) -> bool {
+        let hash = match &blk.hash {
+            Some(h) => h,
+            None => {
+                return false;
+            }
+        };
+
+        if self.chain.last().unwrap().hash.unwrap() != hash.clone() {
+            return false;
+        }
+
+        if !is_elected(blk.tx, hash, self.chain.len()) {}
         return true;
         // TODO: um.. this is probably the toughest part, will see..
         // Things to verify:
