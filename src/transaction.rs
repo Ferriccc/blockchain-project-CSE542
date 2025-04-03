@@ -21,5 +21,6 @@ pub struct QueryTx {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ServeFileTx {
-    pub file_content: u8,
+    pub request_id: String,
+    pub file_content: Vec<u8>,
 }

@@ -13,6 +13,7 @@ use data::Data;
 use mempool::{MemPool, MemPoolRequest};
 use node::Node;
 use randomized_election::is_elected;
+use std::fs::{self, File};
 use std::{collections::HashMap, panic};
 use tokio::time;
 use transaction::*;
@@ -21,6 +22,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     error::Error,
     hash::{Hash, Hasher},
+    io::Write, // Import the Write trait for File
     time::Duration,
 };
 
@@ -187,6 +189,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                     let request = MemPoolRequest::new(node.id.to_string(), &line, 1.0)?;
                     mempool.add(&request);
+                    println!("Request id: {}", request.request_id);
 
                     let data = serde_json::to_vec(&request)?;
                     Data::new(node.id.clone().to_string(), data, &node.private_key, node.public_key.clone(), true)?.broadcast(&mut swarm, &topic)?;
@@ -231,11 +234,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             mempool.add(&received_request);
                         }  else if let Ok(received_query) = serde_json::from_slice::<QueryTx>(&data) {
                             if blockchain.stored[&received_query.request_id] != node.id {
-                                return Ok(());
+                                return Err("queried file is not stored by me".into());
                             }
-                            
-                        } else if let Ok(received_file) = serde_json::from_slice::<ServeFileTx>(&data) {}
-                        else {
+                           let data = serde_json::to_vec(&ServeFileTx{request_id: received_query.clone().request_id, file_content:
+                            fs::read(received_query.clone().request_id)?})?;
+                        Data::new(node.id.clone().to_string(), data, &node.private_key, node.public_key.clone(), true)?.broadcast(&mut swarm, &topic)?;
+                        } else if let Ok(received_file) = serde_json::from_slice::<ServeFileTx>(&data) {
+                                    let mut fp = File::create(received_file.request_id.to_string())?;
+                                    fp.write_all(&received_file.file_content)?;
+                        } else {
                             return Err("invalid received_signed_data".into());
                         }
                         Ok(())
