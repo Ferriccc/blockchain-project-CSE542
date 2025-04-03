@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::block::Block;
 use crate::randomized_election::is_elected;
+use crate::transaction::{MonetaryTx, StorageTx};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Blockchain {
@@ -16,13 +17,8 @@ impl Blockchain {
     pub fn search_transaction(&self, id: &str) -> bool {
         let mut found: bool = false;
         for block in &self.chain {
-            if let Some(tx) = &block.tx {
-                match tx {
-                    Transaction::FileStored(file_stored_tx) => {
-                        found |= file_stored_tx.request_id == id;
-                    }
-                    _ => (),
-                };
+            if let Some(tx) = &block.stx {
+                found |= tx.request_id == id;
             }
         }
 
@@ -34,18 +30,16 @@ impl Blockchain {
     }
 
     pub fn verify_and_add(&self, blk: &Block) -> bool {
-        let hash = match &blk.hash {
-            Some(h) => h,
-            None => {
-                return false;
-            }
-        };
-
-        if self.chain.last().unwrap().hash.unwrap() != hash.clone() {
+        if self.chain.last().unwrap().hash != blk.hash {
             return false;
         }
 
-        if !is_elected(blk.tx, hash, self.chain.len()) {}
+        if let Some(stx) = &blk.stx {
+            if !is_elected(&stx.miner_id, &blk.hash, self.chain.len()) {
+                return false;
+            }
+        }
+
         return true;
         // TODO: um.. this is probably the toughest part, will see..
         // Things to verify:
@@ -55,6 +49,11 @@ impl Blockchain {
         // exsisting mappings should not change
         // Extras:
         // instead of k = 1, use k > 1 and verify the PoST by majority votes
+    }
+
+    pub fn verify(&self) -> bool {
+        // TODO: implement to verify a received blockchain is valid or not
+        return true;
     }
 
     pub fn update(&mut self, new_chain: Blockchain) {

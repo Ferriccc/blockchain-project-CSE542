@@ -13,3 +13,13 @@ pub struct MonetaryTx {
     pub node_id: String,
     pub amount: f64,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct QueryTx {
+    pub request_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ServeFileTx {
+    pub file_content: u8,
+}

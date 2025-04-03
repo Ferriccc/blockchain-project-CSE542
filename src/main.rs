@@ -15,6 +15,7 @@ use node::Node;
 use randomized_election::is_elected;
 use std::{collections::HashMap, panic};
 use tokio::time;
+use transaction::*;
 
 use std::{
     collections::hash_map::DefaultHasher,
@@ -109,8 +110,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Geneisis block
     let mut gen_block = Block {
         previous_hash: None,
-        tx: None,
-        hash: None,
+        mtx: None,
+        stx: None,
+        hash: "".to_string(),
     };
     gen_block.calculate_hash();
     blockchain.chain.push(gen_block);
@@ -156,18 +158,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
 
                     let mut block = Block {
-                        previous_hash: blockchain.chain.last().unwrap().hash.clone(),
-                        tx: Some(req.mine(&node.id)),
-                        hash: None,
+                        previous_hash: Some(blockchain.chain.last().unwrap().hash.clone()),
+                        mtx: None,
+                        stx: Some(req.mine(&node.id)?),
+                        hash: "".to_string(),
                     };
                     block.calculate_hash();
 
-                    if !is_elected(&node.id, &block.hash.clone().unwrap(), blockchain.chain.len()) {
+                    if !is_elected(&node.id, &block.hash.clone(), blockchain.chain.len()) {
                         return Err("Not eligible to propose a block".into());
                     }
 
                     blockchain.add_block(block.clone());
-                    blockchain.stored.insert(req.file_hash, node.id.clone());
+                    blockchain.stored.insert(req.request_id, node.id.clone());
 
                     Ok(())
                 })() {
@@ -177,6 +180,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             Ok(Some(line)) = stdin.next_line() => {
                 if let Err(e) = (|| -> Result<(), Box<dyn Error>> {
+                    if line[0..3] == *"GET" {
+
+                        return Ok(());
+                    }
+
                     let request = MemPoolRequest::new(node.id.to_string(), &line, 1.0)?;
                     mempool.add(&request);
 
@@ -216,15 +224,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                         let data = data.data;
                         if let Ok(received_blockchain) = serde_json::from_slice::<Blockchain>(&data) {
-                            //println!("[#] Received Blockchain: {:#?}", received_blockchain);
                             if received_blockchain.verify() {
                                 blockchain.update(received_blockchain);
-                                //println!("[DEBUG] current chain: {:#?}", blockchain);
                             }
                         } else if let Ok(received_request) = serde_json::from_slice::<MemPoolRequest>(&data) {
-                            //println!("[#] Received request: {:#?}", received_request);
                             mempool.add(&received_request);
-                        }  else {
+                        }  else if let Ok(received_query) = serde_json::from_slice::<QueryTx>(&data) {
+                            if blockchain.stored[&received_query.request_id] != node.id {
+                                return Ok(());
+                            }
+                            
+                        } else if let Ok(received_file) = serde_json::from_slice::<ServeFileTx>(&data) {}
+                        else {
                             return Err("invalid received_signed_data".into());
                         }
                         Ok(())
