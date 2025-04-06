@@ -3,17 +3,35 @@ use std::collections::HashMap;
 
 use crate::block::Block;
 use crate::randomized_election::is_elected;
-use crate::transaction::{MonetaryTx, StorageTx};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Blockchain {
     pub chain: Vec<Block>,
-    pub nodes: Vec<String>,
     pub stored: HashMap<String, String>,
     pub balance: HashMap<String, f64>,
 }
 
 impl Blockchain {
+    pub fn new_with_genesis_block() -> Self {
+        let mut blockchain = Blockchain {
+            chain: vec![],
+            stored: HashMap::new(),
+            balance: HashMap::new(),
+        };
+
+        blockchain.chain.push(
+            Block {
+                previous_hash: None,
+                mtx: None,
+                stx: None,
+                hash: "".to_string(),
+            }
+            .calculate_hash(),
+        );
+
+        blockchain
+    }
+
     pub fn search_transaction(&self, id: &str) -> bool {
         let mut found: bool = false;
         for block in &self.chain {
@@ -29,7 +47,7 @@ impl Blockchain {
         self.chain.push(block);
     }
 
-    pub fn verify_and_add(&self, blk: &Block) -> bool {
+    pub fn _verify_and_add(&self, blk: &Block) -> bool {
         if self.chain.last().unwrap().hash != blk.hash {
             return false;
         }
@@ -59,9 +77,7 @@ impl Blockchain {
     pub fn update(&mut self, new_chain: Blockchain) {
         // self.public_key_map.extend(new_chain.public_key_map);
         // TODO: implement this
-        self.nodes.extend(new_chain.nodes);
-        self.nodes.sort();
-        self.nodes.dedup();
+        self.stored.extend(new_chain.stored);
         if self.chain.len() < new_chain.chain.len() {
             self.chain = new_chain.chain;
         }

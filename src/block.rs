@@ -12,7 +12,7 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn calculate_hash(&mut self) {
+    pub fn calculate_hash(mut self) -> Self {
         let prv_hash = match &self.previous_hash {
             Some(x) => x,
             None => "",
@@ -32,5 +32,7 @@ impl Block {
         let hash = format!("{:x}", Sha256::digest(data.as_bytes()));
 
         self.hash = hash;
+
+        self
     }
 }
