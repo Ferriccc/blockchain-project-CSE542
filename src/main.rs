@@ -4,6 +4,7 @@ mod data;
 mod mempool;
 mod network;
 mod node;
+mod post;
 mod randomized_election;
 mod transaction;
 mod utils;
@@ -18,7 +19,7 @@ use transaction::*;
 
 use futures::stream::StreamExt;
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     error::Error,
     fs::{self, File},
     io::Write,
@@ -36,11 +37,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdin = io::BufReader::new(io::stdin()).lines();
     let mut broadcast_timer = time::interval(Duration::from_secs(2));
     let mut mine_timer = time::interval(Duration::from_secs(2));
+    let mut validate_timer = time::interval(Duration::from_secs(10));
     let mut serving_q: VecDeque<String> = VecDeque::new();
     let mut mempool: VecDeque<MemPoolRequest> = VecDeque::new();
+    let mut set_of_nodes: HashSet<String> = HashSet::new();
+    set_of_nodes.insert(node.id.to_string());
 
     loop {
         select! {
+            _ = validate_timer.tick() => {
+                for (request_id, list) in &blockchain.stored {
+                    if !list.contains(&node.id) {
+                        continue;
+                    }
+                }
+            }
+
             _ = broadcast_timer.tick() => {
                 Data::broadcast(&node, &blockchain, &mut swarm, &topic).inspect_err(|e| println!("{e}")).ok();
                 if let Some(request) = mempool.front() {
@@ -57,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             _ = mine_timer.tick() => {
                 if let Some(request) = mempool.front() {
-                    request.mine(&node, &mut blockchain).inspect_err(|e| println!("{e}")).ok();
+                    request.mine(&node, &mut blockchain, set_of_nodes.len()).inspect_err(|e| println!("{e}")).ok();
                     mempool.pop_front();
                 }
             }
@@ -69,7 +81,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     };
                     Data::broadcast(&node, &query, &mut swarm, &topic).inspect_err(|e| println!("{e}")).ok();
                 } else if let Some(request) = {
-                    MemPoolRequest::new(node.id.to_string(), &line, 1.0)
+                    MemPoolRequest::new(node.id.to_string(), &line)
                         .inspect_err(|e| println!("{e}"))
                         .ok()
                 } {
@@ -85,12 +97,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, _) in list {
                         // println!("+++ New peer discovered");
+                        set_of_nodes.insert(peer_id.to_string());
                         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                     }
                 }
                 SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                     for (peer_id, _) in list {
                         // println!("--- Peer expired");
+                        set_of_nodes.remove(&peer_id.to_string());
                         swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
                     }
                 }
@@ -119,7 +133,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                         else if let Ok(received_query) = serde_json::from_slice::<QueryTx>(&data) {
                             if let Some(nodeid) = blockchain.stored.get(&received_query.request_id) {
-                                if nodeid.to_string() != node.id {
+                                if !nodeid.contains(&node.id) {
                                     return Err("queried file is not stored by me".into());
                                 }
                                 serving_q.push_back(received_query.request_id);

@@ -11,11 +11,10 @@ fn get_deterministic_random(seed: &str, l: u64, r: u64) -> u64 {
 
 const M: u64 = 2;
 
-pub fn is_elected(id: &str, block_hash: &str, chain_len: usize) -> bool {
+pub fn is_elected(id: &str, block_hash: &str, total_nodes: u64) -> bool {
     let seed = id.to_owned() + block_hash;
 
-    let chain_len = chain_len as u64;
-    let rn = get_deterministic_random(&seed, 0, chain_len);
+    let rn = get_deterministic_random(&seed, 0, total_nodes);
 
-    rn <= (chain_len + M - 1) / M
+    rn <= (total_nodes + M - 1) / M
 }

@@ -16,8 +16,7 @@ pub struct MemPoolRequest {
     pub request_id: String,
     pub file_content: Vec<u8>,
     pub file_hash: String,
-    pub file_size: u64,
-    pub reward: f64,
+    pub file_size: usize,
 }
 
 fn compute_file_hash(file_data: &[u8]) -> String {
@@ -27,7 +26,12 @@ fn compute_file_hash(file_data: &[u8]) -> String {
 }
 
 impl MemPoolRequest {
-    pub fn mine(&self, node: &Node, blockchain: &mut Blockchain) -> Result<Block, Box<dyn Error>> {
+    pub fn mine(
+        &self,
+        node: &Node,
+        blockchain: &mut Blockchain,
+        total_nodes: usize,
+    ) -> Result<Block, Box<dyn Error>> {
         if blockchain.search_transaction(&self.request_id) {
             return Err("Request already served".into());
         }
@@ -49,14 +53,16 @@ impl MemPoolRequest {
         }
         .calculate_hash();
 
-        if !is_elected(&node.id, &block.hash.clone(), blockchain.chain.len()) {
+        if !is_elected(&node.id, &block.hash.clone(), total_nodes as u64) {
             return Err("Not eligible to propose a block".into());
         }
 
         blockchain.add_block(block.clone());
         blockchain
             .stored
-            .insert(self.request_id.clone(), node.id.clone());
+            .entry(self.request_id.clone())
+            .or_insert(vec![])
+            .push(node.id.clone());
 
         // store the file_content locally
         let mut fp = File::create(self.request_id.to_string())?;
@@ -65,10 +71,10 @@ impl MemPoolRequest {
         Ok(block)
     }
 
-    pub fn new(node_id: String, file_path: &str, reward: f64) -> Result<Self, Box<dyn Error>> {
+    pub fn new(node_id: String, file_path: &str) -> Result<Self, Box<dyn Error>> {
         let file_content = fs::read(file_path)?;
         let file_hash = compute_file_hash(&file_content);
-        let file_size = file_content.len() as u64;
+        let file_size = file_content.len();
 
         Ok(MemPoolRequest {
             node_id,
@@ -76,7 +82,6 @@ impl MemPoolRequest {
             file_content,
             file_hash,
             file_size,
-            reward,
         })
     }
 }

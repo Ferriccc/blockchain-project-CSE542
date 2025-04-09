@@ -5,7 +5,15 @@ pub struct StorageTx {
     pub miner_id: String,
     pub request_id: String,
     pub file_hash: String,
-    pub file_size: u64,
+    pub file_size: usize,
+}
+
+pub struct ProofOfStorageTx {
+    pub asking_node_id: String,
+    pub responding_node_id: String,
+    pub start: usize,
+    pub end: usize,
+    pub proof_hash: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
