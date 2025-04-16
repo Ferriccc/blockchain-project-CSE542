@@ -8,9 +8,10 @@ pub struct StorageTx {
     pub file_size: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProofOfStorageTx {
-    pub asking_node_id: String,
-    pub responding_node_id: String,
+    pub request_id: String,
+    pub node_id: String,
     pub start: usize,
     pub end: usize,
     pub proof_hash: String,

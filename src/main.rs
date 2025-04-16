@@ -15,6 +15,7 @@ use libp2p::{gossipsub, mdns, swarm::SwarmEvent};
 use mempool::MemPoolRequest;
 use network::MyBehaviourEvent;
 use node::Node;
+use sha2::digest;
 use transaction::*;
 
 use futures::stream::StreamExt;
@@ -26,7 +27,8 @@ use std::{
     panic,
 };
 
-use tokio::{io, io::AsyncBufReadExt, select, time, time::Duration};
+use digest::Digest;
+use tokio::{io, io::AsyncBufReadExt, select, time, time::Duration}; // Import the Digest trait for sha2::Sha256
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -50,6 +52,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if !list.contains(&node.id) {
                         continue;
                     }
+
+                    // Read the file content
+                    let file_content = match fs::read(request_id) {
+                        Ok(content) => content,
+                        Err(e) => {
+                            println!("[!!] Failed to read file for request_id {request_id}: {e}");
+                            continue;
+                        }
+                    };
+
+                    // Generate a challenge
+                    let (start, end) = post::generate_new_challenge(file_content.len());
+
+                    // Compute the hash for the challenge range
+                    let segment = &file_content[start..end];
+                    let mut hasher = sha2::Sha256::new();
+                    hasher.update(segment);
+                    let proof_hash = format!("{:x}", hasher.finalize());
+
+                    // Create a ProofOfStorageTx
+                    let proof = ProofOfStorageTx {
+                        request_id: request_id.clone(),
+                        node_id: node.id.clone(),
+                        start,
+                        end,
+                        proof_hash,
+                    };
+
+                    // Broadcast the proof
+                    Data::broadcast(&node, &proof, &mut swarm, &topic)
+                        .inspect_err(|e| println!("[!!] Failed to broadcast proof: {e}"))
+                        .ok();
                 }
             }
 
@@ -139,7 +173,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 serving_q.push_back(received_query.request_id);
                             }
                         }
-                         else {
+                        else if let Ok(received_proof) = serde_json::from_slice::<ProofOfStorageTx>(&data) {
+                            // if current node is not in requestid list then skip
+                            if let Some(list) = blockchain.stored.get(&received_proof.request_id) {
+                                if !list.contains(&node.id) {
+                                    return Err("proof is not for me".into());
+                                }
+                            } else {
+                                return Err("invalid received_proof".into());
+                            }
+                            // Read the file content
+                            let file_content = match fs::read(received_proof.request_id.clone()) {
+                                Ok(content) => content,
+                                Err(e) => {
+                                    println!("[!!] Failed to read file for request_id {}: {e}", received_proof.request_id);
+                                    return Err("failed to read file".into());
+                                }
+                            };
+                            // Compute the hash for the challenge range
+                            let segment = &file_content[received_proof.start..received_proof.end];
+                            let mut hasher = sha2::Sha256::new();
+                            hasher.update(segment);
+                            let proof_hash = format!("{:x}", hasher.finalize());
+                            // Check if the proof is valid
+                            if proof_hash != received_proof.proof_hash {
+                                return Err("invalid proof".into());
+                            }
+                            println!("[+] Node {} successfully proved the storage for file {}", received_proof.node_id, received_proof.request_id);
+                        } else {
                             return Err("invalid received_signed_data".into());
                         }
                         Ok(())
