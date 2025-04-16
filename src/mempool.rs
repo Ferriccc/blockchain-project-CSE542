@@ -64,9 +64,13 @@ impl MemPoolRequest {
             .or_insert(vec![])
             .push(node.id.clone());
 
+        println!("{:#?}", blockchain.stored);
+
         // store the file_content locally
         let mut fp = File::create(self.request_id.to_string())?;
         fp.write_all(&self.file_content)?;
+
+        println!("miner {} has mined request {}", self.request_id, node.id);
 
         Ok(block)
     }

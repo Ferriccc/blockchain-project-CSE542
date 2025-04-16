@@ -63,12 +63,15 @@ impl Blockchain {
         return true;
     }
 
-    pub fn update(&mut self, new_chain: Blockchain) {
-        // self.public_key_map.extend(new_chain.public_key_map);
-        // TODO: implement this
-        self.stored.extend(new_chain.stored);
+    pub fn update(&mut self, new_chain: &mut Blockchain) {
+        for (key, mut new_list) in new_chain.stored.drain() {
+            self.stored
+                .entry(key)
+                .or_insert_with(Vec::new)
+                .append(&mut new_list);
+        }
         if self.chain.len() < new_chain.chain.len() {
-            self.chain = new_chain.chain;
+            self.chain = new_chain.chain.clone();
         }
     }
 }

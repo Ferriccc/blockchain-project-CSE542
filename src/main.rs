@@ -62,6 +62,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
                     };
 
+                    println!("sending validation proof {} {}", node.id, request_id);
+
                     // Generate a challenge
                     let (start, end) = post::generate_new_challenge(file_content.len());
 
@@ -88,22 +90,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
 
             _ = broadcast_timer.tick() => {
-                Data::broadcast(&node, &blockchain, &mut swarm, &topic).inspect_err(|e| println!("{e}")).ok();
+                Data::broadcast(&node, &blockchain, &mut swarm, &topic).inspect_err(|e| {}).ok();
                 if let Some(request) = mempool.front() {
-                    Data::broadcast(&node, &request, &mut swarm, &topic).inspect_err(|e| println!("{e}")).ok();
+                    Data::broadcast(&node, &request, &mut swarm, &topic).inspect_err(|e| {}).ok();
                 }
                 if let Some(request_id) = serving_q.front() {
                     let stx = ServeFileTx{
                         request_id: request_id.to_string(),
                         file_content: fs::read(request_id)?
                     };
-                    Data::broadcast(&node, &stx, &mut swarm, &topic).inspect_err(|e| println!("{e}")).ok();
+                    Data::broadcast(&node, &stx, &mut swarm, &topic).inspect_err(|e| {}).ok();
                 }
             }
 
             _ = mine_timer.tick() => {
                 if let Some(request) = mempool.front() {
-                    request.mine(&node, &mut blockchain, set_of_nodes.len()).inspect_err(|e| println!("{e}")).ok();
+                    request.mine(&node, &mut blockchain, set_of_nodes.len()).inspect_err(|e| {}).ok();
                     mempool.pop_front();
                 }
             }
@@ -113,14 +115,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let query = QueryTx {
                         request_id: line[4..].to_string(),
                     };
-                    Data::broadcast(&node, &query, &mut swarm, &topic).inspect_err(|e| println!("{e}")).ok();
+                    Data::broadcast(&node, &query, &mut swarm, &topic).inspect_err(|e| {}).ok();
                 } else if let Some(request) = {
                     MemPoolRequest::new(node.id.to_string(), &line)
-                        .inspect_err(|e| println!("{e}"))
+                        .inspect_err(|e| {})
                         .ok()
                 } {
                     Data::broadcast(&node, &request, &mut swarm, &topic)
-                        .inspect_err(|e| println!("{e}"))
+                        .inspect_err(|e| {})
                         .ok();
                     println!("Request id: {}", request.request_id);
                     mempool.push_back(request);
@@ -154,9 +156,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         }
 
                         let data = data.data;
-                        if let Ok(received_blockchain) = serde_json::from_slice::<Blockchain>(&data) {
+                        if let Ok(mut received_blockchain) = serde_json::from_slice::<Blockchain>(&data) {
                             if received_blockchain.verify() {
-                                blockchain.update(received_blockchain);
+                                blockchain.update(&mut received_blockchain);
                             }
                         } else if let Ok(received_request) = serde_json::from_slice::<MemPoolRequest>(&data) {
                             mempool.push_back(received_request);
@@ -164,14 +166,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         else if let Ok(received_file) = serde_json::from_slice::<ServeFileTx>(&data) {
                             let mut fp = File::create(received_file.request_id.to_string() + "_rec")?;
                             fp.write_all(&received_file.file_content)?;
-                        }
-                        else if let Ok(received_query) = serde_json::from_slice::<QueryTx>(&data) {
-                            if let Some(nodeid) = blockchain.stored.get(&received_query.request_id) {
-                                if !nodeid.contains(&node.id) {
-                                    return Err("queried file is not stored by me".into());
-                                }
-                                serving_q.push_back(received_query.request_id);
-                            }
                         }
                         else if let Ok(received_proof) = serde_json::from_slice::<ProofOfStorageTx>(&data) {
                             // if current node is not in requestid list then skip
@@ -182,6 +176,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             } else {
                                 return Err("invalid received_proof".into());
                             }
+
+                            println!("{:#?}", received_proof);
                             // Read the file content
                             let file_content = match fs::read(received_proof.request_id.clone()) {
                                 Ok(content) => content,
@@ -200,12 +196,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 return Err("invalid proof".into());
                             }
                             println!("[+] Node {} successfully proved the storage for file {}", received_proof.node_id, received_proof.request_id);
-                        } else {
+                            *blockchain.balance.entry(received_proof.clone().node_id) .or_insert(0.0) += 0.01;
+                            println!("[+] Balance of Node {} is {}", received_proof.node_id, blockchain.balance.get(&received_proof.node_id).unwrap());
+                        }
+                        else if let Ok(received_query) = serde_json::from_slice::<QueryTx>(&data) {
+                            if let Some(nodeid) = blockchain.stored.get(&received_query.request_id) {
+                                if !nodeid.contains(&node.id) {
+                                    return Err("queried file is not stored by me".into());
+                                }
+                                serving_q.push_back(received_query.request_id);
+                            }
+                        }
+                        else {
                             return Err("invalid received_signed_data".into());
                         }
                         Ok(())
                     })() {
-                        println!("[!!] {e}");
+                        // println!("[!!] {e}");
                     }
                 }
                 SwarmEvent::NewListenAddr { address, .. } => {
