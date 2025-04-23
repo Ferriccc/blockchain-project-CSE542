@@ -154,14 +154,8 @@ async fn retrieve_file(file_id: String) -> Result<Vec<u8>> {
 # Clone repository
 git clone https://github.com/yourusername/blockchain-storage.git
 
-# Build project
-cargo build --release
-
-# Run tests
-cargo test
-
 # Start node
-cargo run --bin node
+cargo run
 ```
 
 ### Testing Coverage
